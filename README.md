@@ -12,6 +12,20 @@ Users can search for satellites, filter orbital objects, inspect satellite detai
 
 ---
 
+## Screenshots
+
+### Main Dashboard
+
+![Satellite Tracker Dashboard](./public/satellite.png)
+
+### Satellite View
+
+![Satellite Detail View](./public/zoomed-satellite.png)
+---
+
+## Features
+...
+
 ## Features
 
 - Real-time satellite tracking and visualization
