@@ -28,7 +28,7 @@ export async function getStations() {
 
 export async function getTLEs() {
   const response = await fetch(
-    "http://localhost:3001/api/tles"
+    "/api/tles"
   );
 
   if (!response.ok) {
