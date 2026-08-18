@@ -1,41 +1,10 @@
 import { Canvas, useLoader } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { TextureLoader } from "three";
-import { getSatellites, getActiveSatellites } from "./services/satelliteApi";
+import { getTLEs  } from "./services/satelliteApi";
 import { tleToPosition } from "./services/orbitService";
-
-type GroundStation = {
-  id: number;
-  name: string;
-  latitude: number;
-  longitude: number;
-  status: "ONLINE" | "OFFLINE";
-};
-
-const groundStations: GroundStation[] = [
-  {
-    id: 1,
-    name: "Toronto",
-    latitude: 43.6532,
-    longitude: -79.3832,
-    status: "ONLINE",
-  },
-  {
-    id: 2,
-    name: "Houston",
-    latitude: 29.7604,
-    longitude: -95.3698,
-    status: "OFFLINE",
-  },
-  {
-    id: 3,
-    name: "London",
-    latitude: 51.5072,
-    longitude: -0.1276,
-    status: "ONLINE",
-  },
-];
+import { findThreats } from "./services/threatDetection";
 
 function Earth() {
   const texture = useLoader(TextureLoader, "/earth.jpg");
@@ -43,11 +12,11 @@ function Earth() {
   return (
     <mesh>
       <sphereGeometry args={[2, 64, 64]} />
-    <meshStandardMaterial
-      map={texture}
-      roughness={0.8}
-      metalness={0.1}
-    />
+      <meshStandardMaterial
+        map={texture}
+        roughness={0.8}
+        metalness={0.1}
+      />
     </mesh>
   );
 }
@@ -72,125 +41,168 @@ function latLonToVector3(
   return [x, y, z] as [number, number, number];
 }
 
-function GroundStationMarker({
-  station,
-  onSelect,
-  selected,
-}: {
-  station: GroundStation;
-  onSelect: (station: GroundStation) => void;
-  selected: boolean;
-}) {
-  const position = latLonToVector3(
-    station.latitude,
-    station.longitude,
-    2.05
-  );
+function getSatelliteType(name: string) {
+  const upper = name.toUpperCase();
 
-  return (
-    <mesh 
-      position={position}
-      onClick={() => onSelect(station)}
-    >
-      <sphereGeometry
-        args={[
-          selected ? 0.09 : 0.06,
-          16,
-          16,
-        ]}
-      />
+  if (
+    upper.includes("DEB") ||
+    upper.includes("DEBRIS")
+  ) {
+    return "DEBRIS";
+  }
 
-      <meshStandardMaterial
-        color={
-          station.status === "ONLINE"
-            ? "lime"
-            : "red"
-        }
-        emissive={
-          station.status === "ONLINE"
-            ? "lime"
-            : "red"
-        }
-        emissiveIntensity={2}
-      />
-    </mesh>
-  );
+  if (
+    upper.includes("R/B") ||
+    upper.includes("ROCKET")
+  ) {
+    return "ROCKET";
+  }
+
+  return "ACTIVE";
 }
 
 export default function App() {
 
-  const [selectedLiveSatellite, setSelectedLiveSatellite] =
+  const [selectedSatellite, setSelectedSatellite] =
     useState<any | null>(null);
-  
-  const [selectedGroundStation, setSelectedGroundStation] =
-    useState<GroundStation | null>(null);
 
   const [search, setSearch] = useState("");
 
-  const [liveSatellites, setLiveSatellites] =
+  const [filter, setFilter] = useState("ALL");
+
+  const [tleSatellites, setTleSatellites] =
     useState<any[]>([]);
 
-  const [activeSatellites, setActiveSatellites] =
-    useState<any[]>([]);
+  const [loading, setLoading] =
+    useState(true);
+
+  const [hoveredSatellite, setHoveredSatellite] =
+  useState<number | null>(null);
 
   useEffect(() => {
-    getSatellites()
+    getTLEs()
       .then((data) => {
-        console.log("FULL DATA:", data);
-        console.log("TYPE:", typeof data);
-        console.log("LENGTH:", data?.length);
-
-        setLiveSatellites(data);
+        setTleSatellites(data);
       })
-      .catch((err) => {
-        console.error("API ERROR:", err);
+      .catch(console.error)
+      .finally(() => {
+        setLoading(false);
       });
   }, []);
 
-  useEffect(() => {
-    getActiveSatellites()
-      .then((data) => {
-        console.log("ACTIVE DATA:", data);
+  const filteredSatellites = tleSatellites.filter(
+    (sat) => {
+      const matchesSearch =
+        sat.OBJECT_NAME
+          ?.toLowerCase()
+          .includes(search.toLowerCase());
 
-        setActiveSatellites(data);
-      })
-      .catch((err) => {
-        console.error("ACTIVE ERROR:", err);
-      });
-  }, []);
+      const type =
+        getSatelliteType(
+          sat.OBJECT_NAME || ""
+        );
 
-  useEffect(() => {
-    try {
-      console.log("START");
+      const matchesFilter =
+        filter === "ALL" ||
+        filter === type;
 
-      const pos = tleToPosition(
-        "1 25544U 98067A   26225.54791667  .00016717  00000+0  10270-3 0  9991",
-        "2 25544  51.6428 120.1456 0004297 115.0207  26.5193 15.50060232393958"
+      return (
+        matchesSearch &&
+        matchesFilter
       );
-
-      console.log("POSITION:", pos);
-    } catch (err) {
-      console.error("TLE ERROR:", err);
     }
-  }, []);
-
-  const filteredSatellites = liveSatellites.filter(
-    (sat) =>
-      sat.satname
-        ?.toLowerCase()
-        .includes(search.toLowerCase())
   );
 
-  const totalSatellites = liveSatellites.length;
+  const satellitePositions =
+  filteredSatellites
+    .slice(0, 300)
+    .map((sat) => {
+      try {
+        const pos = tleToPosition(
+          sat.TLE_LINE1,
+          sat.TLE_LINE2
+        );
 
-  const totalAlerts = 0;
+        if (!pos) return null;
 
-  const onlineStations =
-    groundStations.filter(
-      (station) => station.status === "ONLINE"
+        return {
+          name: sat.OBJECT_NAME,
+          position: latLonToVector3(
+            pos.latitude,
+            pos.longitude,
+            2 + pos.altitude / 2000
+          ),
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  const totalSatellites = tleSatellites.length;
+
+  const activeCount =
+  filteredSatellites.filter(
+    (s) =>
+      getSatelliteType(
+        s.OBJECT_NAME || ""
+      ) === "ACTIVE"
+  ).length;
+
+  const rocketCount =
+    filteredSatellites.filter(
+      (s) =>
+        getSatelliteType(
+          s.OBJECT_NAME || ""
+        ) === "ROCKET"
     ).length;
 
-  const avgBattery = "--";
+  const debrisCount =
+    filteredSatellites.filter(
+      (s) =>
+        getSatelliteType(
+          s.OBJECT_NAME || ""
+        ) === "DEBRIS"
+    ).length;
+
+  const threats = findThreats(
+    satellitePositions as any[]
+  );
+
+  const totalAlerts =
+    threats.length;
+
+  const activeSatellite = selectedSatellite;
+
+  const handleThreatClick = (
+    satName: string
+  ) => {
+    const sat =
+      filteredSatellites.find(
+        (s) =>
+          s.OBJECT_NAME === satName
+      );
+
+    if (!sat) return;
+
+    const pos = tleToPosition(
+      sat.TLE_LINE1,
+      sat.TLE_LINE2
+    );
+
+    if (!pos) return;
+
+    setSelectedSatellite({
+      name: sat.OBJECT_NAME,
+      altitude: pos.altitude,
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      norad: sat.NORAD_CAT_ID,
+      objectType: getSatelliteType(
+        sat.OBJECT_NAME || ""
+      ),
+    });
+  };
 
   return (
     <div
@@ -224,43 +236,103 @@ export default function App() {
           fade
         />
 
-        <Earth />
+      <group>
+        <group
+          onClick={() => {
+            setSelectedSatellite(null);
+            }}
+        >
+          <Earth />
+        </group>
 
-        {/* REAL SATELLITES */}
-          {liveSatellites.map((sat) => (
-            <mesh
-              key={sat.satid}
-              position={latLonToVector3(
-                sat.satlat,
-                sat.satlng,
-                4
-              )}
-              onClick={() => setSelectedLiveSatellite(sat)}
-            >
-              <sphereGeometry args={[0.025, 12, 12]} />
+        {filteredSatellites
+        .slice(0, 500)
+        .map((sat) => {
+          try {
+            const pos = tleToPosition(
+              sat.TLE_LINE1,
+              sat.TLE_LINE2
+            );
 
-              <meshStandardMaterial
-                color={
-                  selectedLiveSatellite?.satid === sat.satid
-                    ? "red"
-                    : "cyan"
-                }
-              />
-            </mesh>
-          ))}
+            if (!pos) return null;
 
-        {groundStations.map((station) => (
-         <GroundStationMarker
-          key={station.id}
-          station={station}
-          onSelect={setSelectedGroundStation}
-          selected={
-            selectedGroundStation?.id === station.id||false
-          }
-        />
-        ))}
+            const radius =
+            2 + Math.min(pos.altitude, 4000) / 4000;
 
-        <OrbitControls />
+            const type = getSatelliteType(
+              sat.OBJECT_NAME || ""
+            );
+
+const isSelected =
+  activeSatellite?.norad === sat.NORAD_CAT_ID;
+
+const color = isSelected
+  ? "cyan"
+  : type === "ACTIVE"
+  ? "lime"
+  : type === "ROCKET"
+  ? "orange"
+  : "red";
+
+            return (
+            <React.Fragment key={sat.NORAD_CAT_ID}>
+
+              <group
+  position={latLonToVector3(
+    pos.latitude,
+    pos.longitude,
+    radius
+  )}
+>
+  {/* Satellite */}
+  <mesh
+    onPointerOver={() => setHoveredSatellite(sat.NORAD_CAT_ID)}
+    onPointerOut={() => setHoveredSatellite(null)}
+    onClick={(e) => {
+      e.stopPropagation();
+
+      setSelectedSatellite({
+        name: sat.OBJECT_NAME,
+        altitude: pos.altitude,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        norad: sat.NORAD_CAT_ID,
+        objectType: getSatelliteType(
+          sat.OBJECT_NAME || ""
+        ),
+      });
+    }}
+  >
+    <sphereGeometry args={[0.015, 8, 8]} />
+    <meshStandardMaterial color={color} />
+  </mesh>
+
+  {/* Hover / Selected Ring */}
+  {(hoveredSatellite === sat.NORAD_CAT_ID ||
+    activeSatellite?.norad === sat.NORAD_CAT_ID) && (
+    <mesh>
+      <ringGeometry args={[0.04, 0.05, 32]} />
+      <meshBasicMaterial
+        color="#ff66ff"
+        side={2}
+      />
+    </mesh>
+  )}
+</group>
+
+        </React.Fragment>
+      );
+    } catch {
+      return null;
+    }
+  })}
+        </group>
+         <OrbitControls
+  enablePan={false}
+  enableZoom={true}
+  enableRotate={true}
+  enableDamping
+/>
       </Canvas>
 
       {/* Search Panel */}
@@ -299,16 +371,105 @@ export default function App() {
             boxSizing: "border-box",
           }}
         />
-        <p style={{ color: "lime" }}>
-          Live Satellites: {liveSatellites.length}
-        </p>
+        {loading ? (
+          <p style={{ color: "orange" }}>
+            Loading satellites...
+          </p>
+        ) : (
+          <p style={{ color: "cyan" }}>
+            TLE Satellites: {tleSatellites.length}
+          </p>
+        )}
 
-        <p style={{ color: "cyan" }}>
-          Active Satellites: {activeSatellites.length}
-        </p>
-        <p style={{ color: "yellow" }}>
-          Raw Active Data: {JSON.stringify(activeSatellites).slice(0, 50)}
-        </p>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 12,
+          }}
+        >
+          <button
+            onClick={() => {
+              setFilter("ALL");
+              setSelectedSatellite(null);
+            }}
+          >
+            All
+          </button>
+
+          <button
+            onClick={() => {
+              setFilter("ACTIVE");
+              setSelectedSatellite(null);
+            }}
+          >
+            Active
+          </button>
+
+          <button
+            onClick={() => {
+              setFilter("ROCKET");
+              setSelectedSatellite(null);
+            }}
+          >
+            Rocket
+          </button>
+
+          <button
+            onClick={() => {
+              setFilter("DEBRIS");
+              setSelectedSatellite(null);
+            }}
+          >
+            Debris
+          </button>
+        </div>
+
+        <div
+          style={{
+            background: "#222",
+            padding: 8,
+            borderRadius: 6,
+            marginBottom: 12,
+            fontSize: "12px",
+          }}
+        >
+          <div
+            style={{
+              fontWeight: "bold",
+              marginBottom: 6,
+            }}
+          >
+            Satellite Types
+          </div>
+
+          <table style={{ width: "100%" }}>
+            <tbody>
+              <tr>
+                <td style={{ color: "lime" }}>
+                  ●
+                </td>
+                <td>Active</td>
+              </tr>
+
+              <tr>
+                <td style={{ color: "orange" }}>
+                  ●
+                </td>
+                <td>Rocket Body</td>
+              </tr>
+
+              <tr>
+                <td style={{ color: "red" }}>
+                  ●
+                </td>
+                <td>Debris</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h4>System Overview</h4>
         <div
@@ -361,80 +522,17 @@ export default function App() {
               background: "#222",
               padding: 8,
               borderRadius: 6,
+              marginBottom: 12,
+              fontSize: "12px",
             }}
           >
-            <div style={{ fontSize: 11, color: "#888" }}>
-              ONLINE GS
-            </div>
-
-            <div style={{ fontSize: 18 }}>
-              {onlineStations}
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: "#222",
-              padding: 8,
-              borderRadius: 6,
-            }}
-          >
-            <div style={{ fontSize: 11, color: "#888" }}>
-              AVG BATTERY
-            </div>
-
-            <div style={{ fontSize: 18 }}>
-              {avgBattery}
-            </div>
+            <div>🟢 Active: {activeCount}</div>
+            <div>🟠 Rocket: {rocketCount}</div>
+            <div>🔴 Debris: {debrisCount}</div>
           </div>
         </div>
 
-        
-        <h4>Ground Stations</h4>
-
-        <table
-          style={{
-            width: "100%",
-            fontSize: "12px",
-            marginBottom: 12,
-          }}
-        >
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {groundStations.map((station) => (
-              <tr
-                key={station.id}
-                onClick={() =>
-                  setSelectedGroundStation(station)
-                }
-                style={{
-                  cursor: "pointer",
-                }}
-              >
-                <td>{station.name}</td>
-
-                <td
-                  style={{
-                    color:
-                      station.status === "ONLINE"
-                        ? "lime"
-                        : "red",
-                  }}
-                >
-                  {station.status}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <h4>Live Satellite</h4>
+        <h4>Space-Track Satellites</h4>
 
         <table
           style={{
@@ -452,98 +550,193 @@ export default function App() {
           </tr>
           </thead>
 
-        <tbody>
-          {filteredSatellites.map((sat) => (
-            <tr
-              key={sat.satid}
-              onClick={() => setSelectedLiveSatellite(sat)}
-              style={{
-                cursor: "pointer",
-              }}
-            >
-              <td>{sat.satname}</td>
+          <tbody>
+            {filteredSatellites.slice(0, 100).map(
+              (sat, index) => {
+                try {
+                  const pos = tleToPosition(
+                    sat.TLE_LINE1,
+                    sat.TLE_LINE2
+                  );
 
-              <td>
-                {Math.round(sat.satalt)} km
-              </td>
+                  if (!pos) return null;
 
-              <td>
-                {sat.satlat.toFixed(1)}
-              </td>
+                  return (
+                    <tr
+                      key={index}
+                        onClick={() => {
+                        setSelectedSatellite({
+                          name: sat.OBJECT_NAME,
+                          altitude: pos.altitude,
+                          latitude: pos.latitude,
+                          longitude: pos.longitude,
+                          norad: sat.NORAD_CAT_ID,
+                          objectType: getSatelliteType(
+                            sat.OBJECT_NAME || ""
+                          ),
+                        });
 
-              <td>
-                {sat.satlng.toFixed(1)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
+                        }}
+                      style={{
+                        cursor: "pointer",
+                      }}
+                    >
+                      <td>{sat.OBJECT_NAME}</td>
+
+                      <td>
+                        {Math.round(pos.altitude)} km
+                      </td>
+
+                      <td>
+                        {pos.latitude.toFixed(1)}
+                      </td>
+
+                      <td>
+                        {pos.longitude.toFixed(1)}
+                      </td>
+                    </tr>
+                  );
+                } catch {
+                  return null;
+                }
+              }
+            )}
+          </tbody>
 
         </table>
+        <h4>Threat Alerts</h4>
 
-        <h4>Alerts</h4>
+        <div
+          style={{
+            maxHeight: 200,
+            overflowY: "auto",
+            fontSize: "12px",
+          }}
+        >
+          {threats.length === 0 ? (
+            <p style={{ color: "#888" }}>
+              No threats detected
+            </p>
+          ) : (
+            threats.slice(0, 20).map(
+              (threat, index) => (
+                <div
+                  key={index}
+                  onClick={() =>
+                    handleThreatClick(
+                      threat.sat1
+                    )
+                  }
+                  style={{
+                    cursor: "pointer",
+                    padding: 6,
+                    background: "#222",
+                    borderRadius: 4,
+                  }}
+                >
+                  <div
+                    style={{
+                      color:
+                        threat.severity === "HIGH"
+                          ? "red"
+                          : threat.severity === "MEDIUM"
+                          ? "orange"
+                          : "lime",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {threat.severity}
+                  </div>
 
-      <p
-        style={{
-          color: "#888",
-          fontSize: "12px",
-        }}
-      >
-        No alert system connected yet
-      </p>
+                  ⚠ {threat.sat1}
+
+                  <br />
+
+                  {threat.sat2}
+
+                  <br />
+
+                  Distance:
+                  {" "}
+                  {threat.distance.toFixed(3)}
+                </div>
+              )
+            )
+          )}
+        </div>
         
       </div>
 
       {/* Info Panel */}
 
-      {selectedLiveSatellite && (
-  <div
-    style={{
-      position: "absolute",
-      top: 20,
-      right: 20,
-      width: 300,
-      background: "#111",
-      color: "white",
-      padding: 16,
-      borderRadius: 8,
-    }}
-  >
-    <h3>{selectedLiveSatellite.satname}</h3>
+      {activeSatellite && (
+      <div
+        style={{
+          position: "absolute",
+          top: 20,
+          right: 20,
+          width: 300,
+          background: "#111",
+          color: "white",
+          padding: 16,
+          borderRadius: 8,
+        }}
+      >
+      
+      <button
+        onClick={() => {
+          setSelectedSatellite(null);
+        }}
+        style={{
+          float: "right",
+          background: "#222",
+          color: "white",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
+        ✕
+      </button>
 
-    <p>ID: {selectedLiveSatellite.satid}</p>
+      <h3
+        style={{
+          marginTop: 0,
+          color: "cyan",
+        }}
+      >
+        {activeSatellite.name}
+      </h3>
 
-    <p>
-      Altitude:
-      {" "}
-      {Math.round(selectedLiveSatellite.satalt)}
-      km
-    </p>
+      <hr />
 
-    <p>
-      Latitude:
-      {" "}
-      {selectedLiveSatellite.satlat.toFixed(2)}
-    </p>
+      <p>
+        <strong>NORAD:</strong>{" "}
+        {activeSatellite.norad}
+      </p>
 
-    <p>
-      Longitude:
-      {" "}
-      {selectedLiveSatellite.satlng.toFixed(2)}
-    </p>
+      <p>
+        <strong>Type:</strong>{" "}
+        {activeSatellite.objectType}
+      </p>
 
-    <p>
-      Launch:
-      {" "}
-      {selectedLiveSatellite.launchDate}
-    </p>
+      <p>
+        <strong>Altitude:</strong>{" "}
+        {Math.round(
+          activeSatellite.altitude
+        )} km
+      </p>
 
-    <p>
-      Designator:
-      {" "}
-      {selectedLiveSatellite.intDesignator}
-    </p>
-  </div>
-)}
+      <p>
+        <strong>Latitude:</strong>{" "}
+        {activeSatellite.latitude.toFixed(2)}
+      </p>
+
+      <p>
+        <strong>Longitude:</strong>{" "}
+        {activeSatellite.longitude.toFixed(2)}
+      </p>
+      </div>
+    )}
 
     </div>
   );

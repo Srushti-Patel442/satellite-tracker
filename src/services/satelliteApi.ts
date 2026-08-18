@@ -12,14 +12,28 @@ export async function getSatellites() {
   return response.json();
 }
 
-export async function getActiveSatellites() {
+export async function getStations() {
   const response = await fetch(
-    "http://localhost:3001/api/active-satellites"
+    "http://localhost:3001/api/stations"
   );
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch active satellites: ${response.status}`
+      `Failed to fetch stations: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+export async function getTLEs() {
+  const response = await fetch(
+    "http://localhost:3001/api/tles"
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch TLEs: ${response.status}`
     );
   }
 

@@ -13,14 +13,16 @@
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "axios": "^1.19.0",
+    "axios-cookiejar-support": "^7.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "satellite.js": "^7.1.0",
+    "satellite.js": "^5.0.0",
     "three": "^0.185.1",
-    "tle.js": "^5.0.3"
+    "tle.js": "^5.0.3",
+    "tough-cookie": "^6.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

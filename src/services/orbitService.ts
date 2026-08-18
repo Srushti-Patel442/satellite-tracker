@@ -9,42 +9,74 @@ export function tleToPosition(
     tle2
   );
 
-  const now = new Date();
+  const pv = satellite.propagate(
+    satrec,
+    new Date()
+  ) as any;
 
-  const positionAndVelocity =
-    satellite.propagate(
-      satrec,
-      now
-    );
+  if (!pv.position) return null;
 
-  const positionEci =
-    positionAndVelocity.position;
+  const gmst = satellite.gstime(new Date());
 
-  if (!positionEci) {
-    return null;
-  }
-
-  const gmst =
-    satellite.gstime(now);
-
-  const geo =
-    satellite.eciToGeodetic(
-      positionEci,
-      gmst
-    );
+  const geo = satellite.eciToGeodetic(
+    pv.position,
+    gmst
+  );
 
   return {
-    latitude:
-      satellite.degreesLat(
+    latitude: satellite.degreesLat(
+      geo.latitude
+    ),
+    longitude: satellite.degreesLong(
+      geo.longitude
+    ),
+    altitude: geo.height,
+  };
+}
+
+export function generateOrbitPath(
+  tle1: string,
+  tle2: string,
+  points = 90
+) {
+  const satrec = satellite.twoline2satrec(
+    tle1,
+    tle2
+  );
+
+  const orbitPoints = [];
+
+  for (let i = 0; i < points; i++) {
+    const future = new Date(
+      Date.now() + i * 60 * 1000
+    );
+
+    const pv = satellite.propagate(
+      satrec,
+      future
+    ) as any;
+
+    if (!pv.position) continue;
+
+    const gmst =
+      satellite.gstime(future);
+
+    const geo =
+      satellite.eciToGeodetic(
+        pv.position,
+        gmst
+      );
+
+    orbitPoints.push({
+      latitude: satellite.degreesLat(
         geo.latitude
       ),
-
-    longitude:
-      satellite.degreesLong(
+      longitude: satellite.degreesLong(
         geo.longitude
       ),
+      altitude: geo.height,
+    });
+  }
 
-    altitude:
-      geo.height,
-  };
+  return orbitPoints;
 }
